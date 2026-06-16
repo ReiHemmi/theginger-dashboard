@@ -255,6 +255,7 @@ roas = gross / spend if spend else 0
 cpa = spend / orders_n if orders_n else 0          # 1注文あたり広告費
 cac = spend / new_n if new_n else 0                # 新規顧客獲得単価
 cvr = stripe_orders / lp_sessions * 100 if lp_sessions else 0  # LP→Stripe購入率
+ctr_top = clicks / impressions * 100 if impressions else 0     # 広告クリック率
 breakeven_roas = 1 / margin if margin else 0
 contrib_per_order = aov * margin                    # 1注文の粗利（変動費前の貢献）
 ltv = aov * ltv_orders                              # 売上ベースLTV
@@ -269,46 +270,29 @@ if not excluded_orders.empty:
                f"／設定: config/excluded_customers.json")
 
 # ──────────────────────────────────────────────
-# 1. 主要KPI（今日の判断のための一覧）
+# 1. 主要KPI（すべて実績ベース＝追いかけるべき実数）
 # ──────────────────────────────────────────────
-st.subheader("主要KPI")
+st.subheader("主要KPI（すべて実績ベース）")
+st.caption("試算の前提（粗利率・生涯購入回数）には左右されない、日々追いかける実数です。"
+           "LTV・損益分岐など前提を置く試算は下の「ユニットエコノミクス」に分離しています。")
 k = st.columns(4)
 k[0].metric("売上（全チャネル）", yen(gross))
 k[1].metric("広告費", yen(spend))
-roas_delta = f"損益分岐 {breakeven_roas:.2f}"
-k[2].metric("ROAS", f"{roas:.2f}", roas_delta,
-            delta_color="off")
-k[3].metric("CVR（LP→Stripe）", pct(cvr))
+k[2].metric("ROAS（売上÷広告費）", f"{roas:.2f}")
+k[3].metric("AOV（平均注文単価）", yen(aov))
 k2 = st.columns(4)
-k2[0].metric("CPA（1注文あたり広告費）", yen(cpa))
-k2[1].metric("CAC（新規獲得単価）", yen(cac))
-k2[2].metric("AOV（平均注文単価）", yen(aov))
-k2[3].metric("LTV:CAC", f"{ltv_cac:.2f}", "目標 3.0以上", delta_color="off")
+k2[0].metric("注文数", f"{orders_n} 件")
+k2[1].metric("新規顧客", f"{new_n} 人")
+k2[2].metric("CPA（1注文あたり広告費）", yen(cpa))
+k2[3].metric("CAC（新規獲得単価）", yen(cac))
+k3 = st.columns(4)
+k3[0].metric("CVR（LP流入→購入）", pct(cvr))
+k3[1].metric("CTR（広告クリック率）", pct(ctr_top))
+k3[2].metric("広告クリック", f"{clicks:,}")
+k3[3].metric("LP流入", f"{lp_sessions:,}")
 
-# 判定メッセージ
-msgs = []
-if spend:
-    if roas >= breakeven_roas:
-        msgs.append(f"✅ ROAS {roas:.2f} は損益分岐 {breakeven_roas:.2f} を上回り、"
-                    f"粗利ベースで黒字。")
-    else:
-        msgs.append(f"⚠️ ROAS {roas:.2f} は損益分岐 {breakeven_roas:.2f} を下回り、"
-                    f"今の広告費は粗利で回収できていない（赤字）。")
-if cac and ltv_cac:
-    if ltv_cac >= 3:
-        msgs.append(f"✅ LTV:CAC {ltv_cac:.2f}（健全の目安3.0以上）。")
-    else:
-        msgs.append(f"⚠️ LTV:CAC {ltv_cac:.2f}。獲得単価に対して顧客価値が低い。"
-                    f"CAC低減 or リピート（LTV）向上が必要。")
-for m in msgs:
-    (st.success if m.startswith("✅") else st.warning)(m)
-
-# 自動所見（どこに絞るか）
+# 自動所見（どこに絞るか）— ボトルネックは実績ベースの率で判定
 actions = []
-if spend and roas < breakeven_roas:
-    gap = (breakeven_roas / roas - 1) * 100 if roas else 0
-    actions.append(f"**収益性**：広告は粗利ベースで赤字。黒字化には ROAS を"
-                   f"あと約 **{gap:.0f}%** 改善（or 粗利率/客単価UP）が必要。")
 _read = scrolls / paid_sessions * 100 if paid_sessions else 100
 _scv = orders_n / scrolls * 100 if scrolls else 0
 if impressions and (clicks / impressions * 100) < 1.0:
@@ -402,18 +386,43 @@ st.divider()
 # ──────────────────────────────────────────────
 # 3. ユニットエコノミクス（詳細）
 # ──────────────────────────────────────────────
-with st.expander("ユニットエコノミクス（前提：粗利率 "
-                 f"{margin*100:.0f}% ／ 生涯購入 {ltv_orders} 回）", expanded=True):
+with st.expander("ユニットエコノミクス（試算：粗利率 "
+                 f"{margin*100:.0f}% ／ 生涯購入 {ltv_orders} 回）", expanded=False):
+    st.caption("⚠️ ここから下はサイドバーの前提（粗利率・生涯購入回数）を置いた"
+               "**試算値**です。前提を変えると数字が動きます。")
     u = st.columns(4)
     u[0].metric("1注文の粗利", yen(contrib_per_order))
     u[1].metric("LTV（売上ベース）", yen(ltv))
     u[2].metric("LTV（粗利ベース）", yen(ltv_contrib))
     u[3].metric("損益分岐ROAS", f"{breakeven_roas:.2f}")
+    u2 = st.columns(2)
+    u2[0].metric("ROAS vs 損益分岐", f"{roas:.2f}", f"分岐 {breakeven_roas:.2f}",
+                 delta_color="off")
+    u2[1].metric("LTV:CAC", f"{ltv_cac:.2f}", "目標 3.0以上", delta_color="off")
     st.caption(
         "・損益分岐ROAS = 1 ÷ 粗利率。現状ROASがこれを超えれば広告は粗利で黒字。\n"
         "・LTV(粗利) = AOV × 生涯購入回数 × 粗利率。これがCACの3倍以上が健全の目安。\n"
         "・数値はサイドバーの前提を変えると即再計算されます。"
     )
+    # 試算ベースの判定メッセージ
+    msgs = []
+    if spend:
+        if roas >= breakeven_roas:
+            msgs.append(f"✅ ROAS {roas:.2f} は損益分岐 {breakeven_roas:.2f} を上回り、"
+                        f"粗利ベースで黒字（前提：粗利率{margin*100:.0f}%）。")
+        else:
+            gap = (breakeven_roas / roas - 1) * 100 if roas else 0
+            msgs.append(f"⚠️ ROAS {roas:.2f} は損益分岐 {breakeven_roas:.2f} を下回り赤字。"
+                        f"黒字化には ROAS をあと約 **{gap:.0f}%** 改善が必要"
+                        f"（or 粗利率/客単価UP）。")
+    if cac and ltv_cac:
+        if ltv_cac >= 3:
+            msgs.append(f"✅ LTV:CAC {ltv_cac:.2f}（健全の目安3.0以上）。")
+        else:
+            msgs.append(f"⚠️ LTV:CAC {ltv_cac:.2f}。獲得単価に対し顧客価値が低い。"
+                        f"CAC低減 or リピート（LTV）向上が必要。")
+    for m in msgs:
+        (st.success if m.startswith("✅") else st.warning)(m)
 
 st.divider()
 
