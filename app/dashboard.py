@@ -183,9 +183,10 @@ with st.sidebar:
                                 default=adset_default)
     all_ads = (sorted(addet["ad_name"].dropna().unique().tolist())
                if not addet.empty else [])
-    # 既定は販売目的（名前に売上/販売を含む＝LP①②）の広告のみ
-    ad_default = [a for a in all_ads
-                  if ("売上" in a) or ("販売" in a)] or all_ads
+    # 既定はLP①のみ（販売広告。比較したい時に②等をサイドバーで追加）
+    ad_default = ([a for a in all_ads if "LP①" in a]
+                  or [a for a in all_ads if ("売上" in a) or ("販売" in a)]
+                  or all_ads)
     sel_ads = st.multiselect(
         "③ 広告（クリエイティブ）", options=all_ads, default=ad_default,
         help="例：LP①だけに絞ると、以降の数字・アセット分析がLP①だけになります。")
