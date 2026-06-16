@@ -1,0 +1,7 @@
+{
+  "_comment": "集計から除外する顧客（テスト購入・関係者など）。emailは小文字で。order_idsにはStripe/BASEの注文ID(external_id)を直接指定可。",
+  "emails": [
+    "reihemmi0224@gmail.com"
+  ],
+  "order_ids": []
+}
