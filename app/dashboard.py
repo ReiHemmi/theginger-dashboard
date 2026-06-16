@@ -176,21 +176,24 @@ with st.sidebar:
         help="アンケート/需要検証など販売以外の広告を外して比較できます。")
     all_adsets = (sorted(addet["adset_name"].dropna().unique().tolist())
                   if not addet.empty else [])
+    # 既定は販売目的（名前に売上/販売を含む）の広告セットのみ
+    adset_default = [s for s in all_adsets
+                     if ("売上" in s) or ("販売" in s)] or all_adsets
     sel_adsets = st.multiselect("② 広告セット", options=all_adsets,
-                                default=all_adsets)
+                                default=adset_default)
     all_ads = (sorted(addet["ad_name"].dropna().unique().tolist())
                if not addet.empty else [])
+    # 既定は販売目的（名前に売上/販売を含む＝LP①②）の広告のみ
+    ad_default = [a for a in all_ads
+                  if ("売上" in a) or ("販売" in a)] or all_ads
     sel_ads = st.multiselect(
-        "③ 広告（クリエイティブ）", options=all_ads, default=all_ads,
+        "③ 広告（クリエイティブ）", options=all_ads, default=ad_default,
         help="例：LP①だけに絞ると、以降の数字・アセット分析がLP①だけになります。")
 
-    st.divider()
-    st.header("前提（試算用）")
-    margin = st.slider("粗利率（％）", 30, 90, 62,
-                       help="原価率38%想定 → 粗利率62%") / 100
-    ltv_orders = st.slider("想定 生涯購入回数", 1.0, 5.0, 1.5, 0.1,
-                           help="1人の顧客が生涯で買う回数の想定。LTV試算に使用")
-    st.caption("※ LTV・貢献利益・損益分岐ROASはこの前提で試算します。")
+# 試算の前提（固定値）。LTV・損益分岐ROASの算出にのみ使用。
+# 将来サイドバーで可変にする場合はここをスライダーに戻す。
+margin = 0.62        # 粗利率（原価率38%想定）
+ltv_orders = 1.5     # 想定 生涯購入回数
 
 # 期間で切り出し
 o = clip(orders, "order_date_jst", start, end)
@@ -388,8 +391,9 @@ st.divider()
 # ──────────────────────────────────────────────
 with st.expander("ユニットエコノミクス（試算：粗利率 "
                  f"{margin*100:.0f}% ／ 生涯購入 {ltv_orders} 回）", expanded=False):
-    st.caption("⚠️ ここから下はサイドバーの前提（粗利率・生涯購入回数）を置いた"
-               "**試算値**です。前提を変えると数字が動きます。")
+    st.caption(f"⚠️ ここから下は前提（粗利率{margin*100:.0f}%・生涯購入{ltv_orders}回）"
+               "を置いた**試算値**です。実績KPIとは別物。"
+               "前提を見直したくなったら言ってください（可変に戻せます）。")
     u = st.columns(4)
     u[0].metric("1注文の粗利", yen(contrib_per_order))
     u[1].metric("LTV（売上ベース）", yen(ltv))
@@ -402,7 +406,7 @@ with st.expander("ユニットエコノミクス（試算：粗利率 "
     st.caption(
         "・損益分岐ROAS = 1 ÷ 粗利率。現状ROASがこれを超えれば広告は粗利で黒字。\n"
         "・LTV(粗利) = AOV × 生涯購入回数 × 粗利率。これがCACの3倍以上が健全の目安。\n"
-        "・数値はサイドバーの前提を変えると即再計算されます。"
+        "・前提（粗利率・生涯購入回数）はコード内の固定値。可変にしたい場合は対応します。"
     )
     # 試算ベースの判定メッセージ
     msgs = []
