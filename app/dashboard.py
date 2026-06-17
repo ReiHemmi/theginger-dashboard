@@ -54,8 +54,8 @@ def load_orders() -> pd.DataFrame:
 def load_ad_detail() -> pd.DataFrame:
     """広告明細（広告×配信面×掲載位置×日次）。キャンペーンIDで管理＝改名でも二重計上なし。"""
     df = _q("SELECT date_jst, campaign_id, campaign_name, adset_name, ad_name, "
-            "platform, position, spend, impressions, clicks, conversions "
-            "FROM ad_detail")
+            "platform, position, spend, impressions, clicks, link_clicks, "
+            "landing_views, conversions FROM ad_detail")
     if not df.empty:
         df["date_jst"] = pd.to_datetime(df["date_jst"]).dt.date
     return df
@@ -224,6 +224,12 @@ aov = gross / orders_n if orders_n else 0
 spend = adD["spend"].sum() if not adD.empty else 0
 impressions = int(adD["impressions"].sum()) if not adD.empty else 0
 clicks = int(adD["clicks"].sum()) if not adD.empty else 0
+# 広告由来のLP流入＝リンククリック（ピクセル不要でMetaが計測。広告以外は含まない）
+ad_link_clicks = int(adD["link_clicks"].sum()) if not adD.empty else 0
+# 広告由来のLP表示（ピクセル計測。設置後に蓄積）
+ad_landing_views = int(adD["landing_views"].sum()) if not adD.empty else 0
+# 広告由来の購入（ピクセルのPURCHASE。設置後に蓄積）
+ad_conversions = int(adD["conversions"].sum()) if not adD.empty else 0
 # GA4はLP(reihemmi.github.io)とBASEショップが混在 → LPに絞る
 trP_lp = trP[trP["hostname"] == LP_HOST] if not trP.empty else trP
 lp_sessions = int(trP_lp["sessions"].sum()) if not trP_lp.empty else 0
@@ -337,57 +343,72 @@ st.divider()
 # ──────────────────────────────────────────────
 # 2. ファネル（ボトルネック把握）
 # ──────────────────────────────────────────────
-st.subheader("広告ファネル（広告 → LP → 購入の流れ）")
-st.caption(f"LP（{LP_HOST}）の広告経由フロー。GA4のBASEショップ分は除外済み。"
-           f"LP流入はほぼ全て広告経由（自然流入はほぼ0）。")
+st.subheader("広告ファネル（広告の結果だけ・Meta計測）")
+st.caption("広告由来のみ。表示→クリック→LP流入はすべてMetaが計測した広告経由の数で、"
+           "直接アクセス・自然流入・テスト閲覧は含みません"
+           "（だからクリック ≧ LP流入 になります）。")
 fc1, fc2 = st.columns([3, 2])
 
-stages = ["広告表示", "広告クリック", "LP流入", "スクロール(90%)", "購入(LP直販)"]
-values = [impressions, clicks, lp_sessions, scrolls, stripe_orders]
+# 広告由来のみで構成（LP流入＝リンククリック、購入＝広告経由ピクセルCV）
+stages = ["広告表示", "広告クリック", "LP流入（広告）", "購入（広告経由）"]
+values = [impressions, clicks, ad_link_clicks, ad_conversions]
 with fc1:
-    if impressions or sessions:
+    if impressions:
         fig = go.Figure(go.Funnel(
             y=stages, x=values,
             textinfo="value+percent initial",
-            marker={"color": [GOLD, "#d9b94a", "#e6cf86", "#cdaa5e", "#b0894f"]},
+            marker={"color": [GOLD, "#d9b94a", "#cdaa5e", "#b0894f"]},
             connector={"line": {"color": "#e7dcc6"}},
         ))
-        fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=340,
+        fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=320,
                           paper_bgcolor="rgba(0,0,0,0)",
                           font=dict(color=INK, size=13))
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("ファネル表示にはMeta広告とGA4のデータが必要です。")
+        st.info("ファネル表示にはMeta広告データが必要です。")
 
 with fc2:
     ctr = clicks / impressions * 100 if impressions else 0
-    read_rate = scrolls / lp_sessions * 100 if lp_sessions else 0       # LP流入→スクロール
-    scroll_cvr = stripe_orders / scrolls * 100 if scrolls else 0        # スクロール→購入
-    lp_cvr = stripe_orders / lp_sessions * 100 if lp_sessions else 0    # LP流入→購入
-    st.markdown("**各段階の通過率**")
+    click_to_lp = ad_link_clicks / clicks * 100 if clicks else 0   # クリック→LP遷移
+    ad_cvr = ad_conversions / ad_link_clicks * 100 if ad_link_clicks else 0
+    st.markdown("**各段階の通過率（広告由来）**")
     rates = pd.DataFrame({
-        "段階": ["表示 → クリック (CTR / 広告側)",
-               "LP流入 → スクロール（読了率）",
-               "スクロール → 購入",
-               "LP流入 → 購入 (CVR / LP直販)"],
-        "通過率": [pct(ctr), pct(read_rate), pct(scroll_cvr), pct(lp_cvr)],
+        "段階": ["表示 → クリック (CTR)",
+               "クリック → LP流入（リンク遷移率）",
+               "LP流入 → 購入（広告経由CVR）"],
+        "通過率": [pct(ctr), pct(click_to_lp), pct(ad_cvr)],
     })
     st.dataframe(rates, use_container_width=True, hide_index=True)
-    st.caption("※ 購入はLP直販(Stripe)。BASE経由は別経路のため除外。"
-               "広告クリック(Meta)とLP流入(GA4)は別計測のため完全一致しません。")
-    # ボトルネック指摘（スクロールで切り分け）
+    if ad_conversions == 0:
+        st.caption("※「購入（広告経由）」はMetaピクセルのPURCHASE。"
+                   "今回ピクセルを設置したばかりでまだ0です。蓄積されるまでは"
+                   "表示・クリック・LP流入で広告を判断してください。"
+                   "全チャネルの実購入は下の『売上』を参照。")
+    else:
+        st.caption("※「購入（広告経由）」はMetaピクセル計測の広告attributed購入。")
+    # ボトルネック（広告側のみで判定）
     bottleneck = None
     if impressions and ctr < 1.0:
-        bottleneck = ("**表示→クリック**（CTR<1%）。広告クリエイティブ／配信面の問題。"
+        bottleneck = ("**表示→クリック**（CTR<1%）。広告クリエイティブ／配信面を見直し。"
                       "配信面別の表でどの面が足を引っ張っているか確認を。")
-    elif paid_sessions and read_rate < 40:
-        bottleneck = ("**広告流入→スクロール**（読了率<40%）。LP冒頭で離脱。"
-                      "ファーストビュー（最初の画面）の訴求・表示速度を見直し。")
-    elif scrolls and scroll_cvr < 3:
-        bottleneck = ("**スクロール→購入**（読んでも買わない）。"
-                      "オファー・価格・CTA・購入導線（カゴ落ち）を見直し。")
+    elif clicks and click_to_lp < 70:
+        bottleneck = ("**クリック→LP流入**でロスが大きい。"
+                      "リンク先の設定・LP読込速度を確認（クリックしたのに着地していない）。")
     if bottleneck:
         st.warning(f"ボトルネック候補：{bottleneck}")
+
+# LP全体の読了（GA4・全流入。広告だけの数字ではない＝ファネルとは別物）
+with st.expander("参考：LP全体の読了（全流入ベース・広告以外も含む）"):
+    st.caption(f"GA4で見たLP（{LP_HOST}）の全セッション（広告＋直接＋その他）。"
+               "広告だけの数字ではないので、上のファネルとは切り分けて見てください。")
+    gcol = st.columns(3)
+    read_rate_all = scrolls / lp_sessions * 100 if lp_sessions else 0
+    gcol[0].metric("LP流入（全体）", f"{lp_sessions:,}")
+    gcol[1].metric("スクロール到達", f"{scrolls:,}")
+    gcol[2].metric("読了率（全体）", pct(read_rate_all))
+    if lp_sessions and read_rate_all < 40:
+        st.warning("読了率が低い＝ファーストビューで離脱。"
+                   "最初の画面の訴求・表示速度を見直すと効果的。")
 
 st.divider()
 

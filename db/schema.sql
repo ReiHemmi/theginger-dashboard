@@ -90,6 +90,8 @@ CREATE TABLE IF NOT EXISTS ad_detail (
     spend         REAL    DEFAULT 0,
     impressions   INTEGER DEFAULT 0,
     clicks        INTEGER DEFAULT 0,
+    link_clicks   INTEGER DEFAULT 0,               -- リンククリック（外部遷移）
+    landing_views INTEGER DEFAULT 0,               -- LP表示（広告由来でLPが開かれた数）
     conversions   REAL    DEFAULT 0,
     raw_json      TEXT,
     fetched_at    TEXT    NOT NULL,
@@ -150,6 +152,19 @@ CREATE TABLE IF NOT EXISTS ga4_events (
     UNIQUE(date_jst, event_name, hostname)
 );
 CREATE INDEX IF NOT EXISTS idx_ga4events_date ON ga4_events(date_jst);
+
+-- メルマガ→ショップ流入（GA4・campaign別）: utm_source=newsletter のセッション数
+CREATE TABLE IF NOT EXISTS newsletter_clicks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    date_jst    TEXT    NOT NULL,
+    campaign    TEXT,                            -- utm_campaign（vol1, vol2 ...）
+    hostname    TEXT,                            -- 着地ホスト（theginger.theshop.jp 等）
+    sessions    INTEGER DEFAULT 0,
+    users       INTEGER DEFAULT 0,
+    fetched_at  TEXT    NOT NULL,
+    UNIQUE(date_jst, campaign, hostname)
+);
+CREATE INDEX IF NOT EXISTS idx_nl_date ON newsletter_clicks(date_jst);
 
 -- 自然検索（Search Console）: 日次×検索キーワード別
 CREATE TABLE IF NOT EXISTS search_console (

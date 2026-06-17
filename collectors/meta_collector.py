@@ -295,6 +295,7 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
         if "error" in data:
             raise RuntimeError(f"Meta APIエラー: {data['error'].get('message')}")
         for d in data.get("data", []):
+            actions = d.get("actions")
             rows.append((
                 d["date_start"],
                 d.get("campaign_id"), d.get("campaign_name"),
@@ -302,7 +303,10 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                 d.get("ad_id"), d.get("ad_name"),
                 d.get("publisher_platform"), d.get("platform_position"),
                 float(d.get("spend") or 0), int(d.get("impressions") or 0),
-                int(d.get("clicks") or 0), _extract_purchases(d.get("actions")),
+                int(d.get("clicks") or 0),
+                int(_action_value(actions, "link_click")),
+                int(_action_value(actions, "landing_page_view")),
+                _extract_purchases(actions),
                 json.dumps(d, ensure_ascii=False), fetched_at,
             ))
         url = (data.get("paging") or {}).get("next")
@@ -316,8 +320,9 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                 INSERT INTO ad_detail (
                     date_jst, campaign_id, campaign_name, adset_id, adset_name,
                     ad_id, ad_name, platform, position, spend, impressions,
-                    clicks, conversions, raw_json, fetched_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    clicks, link_clicks, landing_views, conversions,
+                    raw_json, fetched_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_id, date_jst, platform, position) DO UPDATE SET
                     campaign_id   = excluded.campaign_id,
                     campaign_name = excluded.campaign_name,
@@ -326,6 +331,8 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                     spend         = excluded.spend,
                     impressions   = excluded.impressions,
                     clicks        = excluded.clicks,
+                    link_clicks   = excluded.link_clicks,
+                    landing_views = excluded.landing_views,
                     conversions   = excluded.conversions,
                     raw_json      = excluded.raw_json,
                     fetched_at    = excluded.fetched_at
