@@ -20,7 +20,7 @@ import streamlit as st
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from lib.db import get_connection, init_db  # noqa: E402
 
-st.set_page_config(page_title="THE GINGER ダッシュボード", page_icon="🌿",
+st.set_page_config(page_title="THE GINGER ダッシュボード", page_icon="🫚",
                    layout="wide")
 
 GOLD = "#C9A017"
@@ -117,7 +117,7 @@ def clip(df: pd.DataFrame, col: str, s: date, e: date) -> pd.DataFrame:
 # ──────────────────────────────────────────────
 # ヘッダー & サイドバー
 # ──────────────────────────────────────────────
-st.title("🌿 THE GINGER ダッシュボード")
+st.title("🫚 THE GINGER ダッシュボード")
 st.caption("広告→流入→購入を全チャネルで集約。毎朝7時に自動更新。")
 
 orders = load_orders()
