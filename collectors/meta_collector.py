@@ -306,6 +306,7 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                 int(d.get("clicks") or 0),
                 int(_action_value(actions, "link_click")),
                 int(_action_value(actions, "landing_page_view")),
+                int(_action_value(actions, "view_content")),
                 _extract_purchases(actions),
                 json.dumps(d, ensure_ascii=False), fetched_at,
             ))
@@ -320,9 +321,9 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                 INSERT INTO ad_detail (
                     date_jst, campaign_id, campaign_name, adset_id, adset_name,
                     ad_id, ad_name, platform, position, spend, impressions,
-                    clicks, link_clicks, landing_views, conversions,
-                    raw_json, fetched_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    clicks, link_clicks, landing_views, view_content,
+                    conversions, raw_json, fetched_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(ad_id, date_jst, platform, position) DO UPDATE SET
                     campaign_id   = excluded.campaign_id,
                     campaign_name = excluded.campaign_name,
@@ -333,6 +334,7 @@ def fetch_meta_detail(days: int = 90, since: str | None = None) -> int:
                     clicks        = excluded.clicks,
                     link_clicks   = excluded.link_clicks,
                     landing_views = excluded.landing_views,
+                    view_content  = excluded.view_content,
                     conversions   = excluded.conversions,
                     raw_json      = excluded.raw_json,
                     fetched_at    = excluded.fetched_at

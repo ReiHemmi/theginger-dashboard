@@ -55,7 +55,7 @@ def load_ad_detail() -> pd.DataFrame:
     """広告明細（広告×配信面×掲載位置×日次）。キャンペーンIDで管理＝改名でも二重計上なし。"""
     df = _q("SELECT date_jst, campaign_id, campaign_name, adset_name, ad_name, "
             "platform, position, spend, impressions, clicks, link_clicks, "
-            "landing_views, conversions FROM ad_detail")
+            "landing_views, view_content, conversions FROM ad_detail")
     if not df.empty:
         df["date_jst"] = pd.to_datetime(df["date_jst"]).dt.date
     return df
@@ -228,6 +228,8 @@ clicks = int(adD["clicks"].sum()) if not adD.empty else 0
 ad_link_clicks = int(adD["link_clicks"].sum()) if not adD.empty else 0
 # 広告由来のLP表示（ピクセル計測。設置後に蓄積）
 ad_landing_views = int(adD["landing_views"].sum()) if not adD.empty else 0
+# 広告由来の読了（LP80%スクロールのViewContent。設置後に蓄積）
+ad_view_content = int(adD["view_content"].sum()) if not adD.empty else 0
 # 広告由来の購入（ピクセルのPURCHASE。設置後に蓄積）
 ad_conversions = int(adD["conversions"].sum()) if not adD.empty else 0
 # GA4はLP(reihemmi.github.io)とBASEショップが混在 → LPに絞る
@@ -349,15 +351,17 @@ st.caption("広告由来のみ。表示→クリック→LP流入はすべてMet
            "（だからクリック ≧ LP流入 になります）。")
 fc1, fc2 = st.columns([3, 2])
 
-# 広告由来のみで構成（LP流入＝リンククリック、購入＝広告経由ピクセルCV）
-stages = ["広告表示", "広告クリック", "LP流入（広告）", "購入（広告経由）"]
-values = [impressions, clicks, ad_link_clicks, ad_conversions]
+# 広告由来のみで構成（LP流入＝リンククリック、読了＝80%スクロールViewContent、
+# 購入＝広告経由ピクセルCV）。読了・購入はピクセル設置(今回)以降に蓄積。
+stages = ["広告表示", "広告クリック", "LP流入（広告）", "読了（80%スクロール）",
+          "購入（広告経由）"]
+values = [impressions, clicks, ad_link_clicks, ad_view_content, ad_conversions]
 with fc1:
     if impressions:
         fig = go.Figure(go.Funnel(
             y=stages, x=values,
             textinfo="value+percent initial",
-            marker={"color": [GOLD, "#d9b94a", "#cdaa5e", "#b0894f"]},
+            marker={"color": [GOLD, "#d9b94a", "#e6cf86", "#cdaa5e", "#b0894f"]},
             connector={"line": {"color": "#e7dcc6"}},
         ))
         fig.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=320,
@@ -369,24 +373,24 @@ with fc1:
 
 with fc2:
     ctr = clicks / impressions * 100 if impressions else 0
-    click_to_lp = ad_link_clicks / clicks * 100 if clicks else 0   # クリック→LP遷移
-    ad_cvr = ad_conversions / ad_link_clicks * 100 if ad_link_clicks else 0
+    click_to_lp = ad_link_clicks / clicks * 100 if clicks else 0     # クリック→LP遷移
+    ad_read_rate = ad_view_content / ad_link_clicks * 100 if ad_link_clicks else 0
+    ad_read_cvr = ad_conversions / ad_view_content * 100 if ad_view_content else 0
     st.markdown("**各段階の通過率（広告由来）**")
     rates = pd.DataFrame({
         "段階": ["表示 → クリック (CTR)",
                "クリック → LP流入（リンク遷移率）",
-               "LP流入 → 購入（広告経由CVR）"],
-        "通過率": [pct(ctr), pct(click_to_lp), pct(ad_cvr)],
+               "LP流入 → 読了（読了率・80%スクロール）",
+               "読了 → 購入（広告経由）"],
+        "通過率": [pct(ctr), pct(click_to_lp), pct(ad_read_rate), pct(ad_read_cvr)],
     })
     st.dataframe(rates, use_container_width=True, hide_index=True)
-    if ad_conversions == 0:
-        st.caption("※「購入（広告経由）」はMetaピクセルのPURCHASE。"
-                   "今回ピクセルを設置したばかりでまだ0です。蓄積されるまでは"
-                   "表示・クリック・LP流入で広告を判断してください。"
+    if ad_view_content <= 1 or ad_conversions == 0:
+        st.caption("※「読了」「購入」はMetaピクセル計測（読了＝LP80%スクロール、"
+                   "購入＝PURCHASE）。今回ピクセルを設置したばかりで、まだ蓄積中のため"
+                   "0〜少です。当面は表示・クリック・LP流入で判断を。"
                    "全チャネルの実購入は下の『売上』を参照。")
-    else:
-        st.caption("※「購入（広告経由）」はMetaピクセル計測の広告attributed購入。")
-    # ボトルネック（広告側のみで判定）
+    # ボトルネック（広告側のみで判定。読了は蓄積後に有効化）
     bottleneck = None
     if impressions and ctr < 1.0:
         bottleneck = ("**表示→クリック**（CTR<1%）。広告クリエイティブ／配信面を見直し。"
@@ -394,6 +398,9 @@ with fc2:
     elif clicks and click_to_lp < 70:
         bottleneck = ("**クリック→LP流入**でロスが大きい。"
                       "リンク先の設定・LP読込速度を確認（クリックしたのに着地していない）。")
+    elif ad_link_clicks >= 30 and ad_read_rate < 40:
+        bottleneck = ("**LP流入→読了**（読了率<40%）。ファーストビューで離脱。"
+                      "冒頭の訴求・表示速度を見直し。")
     if bottleneck:
         st.warning(f"ボトルネック候補：{bottleneck}")
 

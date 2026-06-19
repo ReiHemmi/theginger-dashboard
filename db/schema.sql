@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS ad_detail (
     clicks        INTEGER DEFAULT 0,
     link_clicks   INTEGER DEFAULT 0,               -- リンククリック（外部遷移）
     landing_views INTEGER DEFAULT 0,               -- LP表示（広告由来でLPが開かれた数）
+    view_content  INTEGER DEFAULT 0,               -- 読了（LP80%スクロールのViewContent・広告由来）
     conversions   REAL    DEFAULT 0,
     raw_json      TEXT,
     fetched_at    TEXT    NOT NULL,
