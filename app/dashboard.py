@@ -417,6 +417,101 @@ with st.expander("参考：LP全体の読了（全流入ベース・広告以外
         st.warning("読了率が低い＝ファーストビューで離脱。"
                    "最初の画面の訴求・表示速度を見直すと効果的。")
 
+# ──────────────────────────────────────────────
+# 2.5 セクション別 離脱分析（GA4・lp_sec_XX）
+# LPのどのセクションで読者が離れているかを特定する専用ファネル。
+# 80%ピクセル(Meta)・90%scroll(GA4)とは別枠の計測。
+# ──────────────────────────────────────────────
+st.subheader("セクション別 離脱分析 ＆ FV A/Bテスト（LPのどこで離れているか）")
+st.caption(f"各セクションが画面に半分入った人数（GA4イベント lp_sec_XX・{LP_HOST}）。"
+           "先頭（ヒーロー）を100%として、どのセクションの手前で何%が脱落したかを見る。"
+           "A＝現行LP（lp_sec_XX）／B＝B-1版（lp_sec_XX_b）。80%ピクセル・90%scrollとは別枠。")
+
+SEC_DEFS = [
+    ("01_hero",        "① ヒーロー（最初の画面）"),
+    ("02_foryou",      "② こんな方に"),
+    ("03_product",     "③ 商品（KUROMOJI×AZUKI）"),
+    ("04_reasons",     "④ 選ばれる4つの理由"),
+    ("05_voice",       "⑤ お客様の声"),
+    ("06_ingredients", "⑥ 素材の説明"),
+    ("07_howtouse",    "⑦ おいしい飲み方"),
+    ("08_expert",      "⑧ 制作者紹介"),
+    ("09_faq",         "⑨ FAQ"),
+    ("10_offer",       "⑩ 先行予約（購入）"),
+]
+
+def _funnel(suffix: str):
+    """suffix='' なら現行(A)、'_b' ならB-1版。(rows, base, drops) を返す。"""
+    rows = [(label, ev_count("lp_sec_" + key + suffix)) for key, label in SEC_DEFS]
+    base = rows[0][1]  # ヒーロー到達数＝母数
+    drops = [0.0]
+    for i in range(1, len(rows)):
+        prev = rows[i - 1][1]
+        drops.append((1 - rows[i][1] / prev) * 100 if prev else 0.0)
+    return rows, base, drops
+
+def _rate(rows, base, idx):
+    return rows[idx][1] / base * 100 if base else 0.0
+
+rowsA, baseA, dropsA = _funnel("")     # A＝現行LP（おまもり訴求）
+rowsB, baseB, dropsB = _funnel("_b")   # B＝B-1版（温活は生姜から）
+
+# データが0件でも、表示枠（A/B比較表・セクション一覧）は常に出す
+if baseA == 0 and baseB == 0:
+    st.info("セクション別データはまだ0件です（A/Bテスト開始後、GA4反映＋コレクタ実行で自動入力）。"
+            "下は表示枠で、現在はすべて0です。")
+
+# ── A/B 要点比較（FV突破率＝②到達率／読了率＝⑩到達率）──
+comp = pd.DataFrame({
+    "指標": ["FV突破率（②到達÷ヒーロー）", "読了率（⑩到達÷ヒーロー）", "サンプル数（ヒーロー到達）"],
+    "A：現行（おまもり）":   [f"{_rate(rowsA, baseA, 1):.0f}%", f"{_rate(rowsA, baseA, 9):.0f}%", f"{baseA:,}"],
+    "B：温活は生姜から":     [f"{_rate(rowsB, baseB, 1):.0f}%", f"{_rate(rowsB, baseB, 9):.0f}%", f"{baseB:,}"],
+})
+st.markdown("**A/B 要点比較**（FVの良し悪しは「FV突破率」が最も端的）")
+st.dataframe(comp, hide_index=True, use_container_width=True)
+if baseA >= 1 and baseB >= 1:
+    fv_a, fv_b = _rate(rowsA, baseA, 1), _rate(rowsB, baseB, 1)
+    diff = fv_b - fv_a
+    if abs(diff) >= 1:
+        win = "B（温活は生姜から）" if diff > 0 else "A（現行・おまもり）"
+        st.info(f"現時点のFV突破率は **{win}** が **{abs(diff):.0f}pt** リード"
+                f"（A {fv_a:.0f}% ／ B {fv_b:.0f}%）。")
+    if min(baseA, baseB) < 100:
+        st.caption("⚠️ まだサンプルが少なく判定はブレます。A・B両方のヒーロー到達が"
+                   "100以上たまってから勝敗を判断してください。")
+
+# ── 各バージョンの詳細ファネル（0件でもセクション一覧は表示）──
+def _render(rows, base, drops):
+    df = pd.DataFrame({
+        "セクション": [r[0] for r in rows],
+        "到達数":     [r[1] for r in rows],
+        "到達率":     [r[1] / base * 100 if base else 0.0 for r in rows],
+        "前段からの脱落": drops,
+    })
+    st.dataframe(
+        df.style.format({"到達率": "{:.0f}%", "前段からの脱落": "{:.0f}%"}),
+        hide_index=True, use_container_width=True,
+    )
+    st.bar_chart(df.set_index("セクション")["到達率"])
+    if base == 0:
+        st.caption("このバージョンはまだ0件です（流入後に各セクションの数値が入ります）。")
+        return
+    worst_i = max(range(1, len(rows)), key=lambda i: drops[i])
+    if drops[worst_i] >= 20:
+        st.warning(
+            f"最大の離脱ポイント：**{rows[worst_i - 1][0]} → {rows[worst_i][0]}** で"
+            f"約 **{drops[worst_i]:.0f}%** が脱落。"
+            f"この『{rows[worst_i - 1][0]}』付近で読者が止まっている可能性が高い。"
+        )
+
+tabA, tabB = st.tabs(["A：現行LP", "B：B-1版（温活は生姜から）"])
+with tabA:
+    _render(rowsA, baseA, dropsA)
+with tabB:
+    _render(rowsB, baseB, dropsB)
+st.caption("⑩到達率＝最後まで読んだ割合（90%scrollとほぼ同義）。"
+           "「前段からの脱落」が大きい行の“ひとつ前”のセクションが、読者を止めている箇所。")
+
 st.divider()
 
 # ──────────────────────────────────────────────
